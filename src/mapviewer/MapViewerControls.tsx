@@ -1,9 +1,11 @@
+import { animate, utils } from "animejs";
 import FileSaver from "file-saver";
 import { vec3 } from "gl-matrix";
 import { Leva, button, buttonGroup, folder, useControls } from "leva";
 import { ButtonGroupOpts, Schema } from "leva/dist/declarations/src/types";
 import { memo, useEffect, useState } from "react";
 
+import mapLocations from "../components/rs/worldmap/locations.json";
 import { DownloadProgress } from "../rs/cache/CacheFiles";
 import { isTouchDevice } from "../util/DeviceUtil";
 import { lerp, slerp } from "../util/MathUtil";
@@ -221,6 +223,88 @@ export const MapViewerControls = memo(
             const buttonName = "Start (F2)";
             recordSchema[buttonName] = button(() => setCameraRunning(true));
             recordSchema[buttonName].order = -1;
+        }
+
+        const { locations } = mapLocations;
+        const locationsMapped = locations.map(({ name, coords }) => ({
+            coords,
+            name: `${name} (${coords[0]}, ${coords[1]})`,
+        }));
+        const [screenSaverRunning, setScreenSaverRunning] = useState(false);
+        const [selectedLocation, setSelectedLocation] = useState<string | undefined>(undefined);
+        const [animation, setAnimation] = useState<any>(undefined);
+
+        const animateRotateAroundPoint = (point: vec3) => {
+            const position = Object.assign({}, mapViewer.camera.pos);
+            return animate(position, {
+                // x: {
+                //     to: mapViewer.camera.pos[0] + 1,
+                // },
+                [0]: {
+                    to: mapViewer.camera.pos[0] + 10,
+                },
+                duration: 10000,
+                onRender: () => {
+                    console.log(position);
+                    mapViewer.setCamera({
+                        position: vec3.fromValues(
+                            position[0],
+                            mapViewer.camera.pos[1],
+                            position[2],
+                        ),
+                    });
+                },
+            });
+        };
+
+        const screensaverSchema: Schema = {
+            "Start At": {
+                value: selectedLocation ?? "Random",
+                options: locationsMapped.map((l) => l.name),
+                onChange(location: string) {
+                    setSelectedLocation(location);
+                    const loc = locationsMapped.find((l) => l.name === location);
+                    if (loc) {
+                        const [x, z] = loc.coords;
+                        mapViewer.setCamera({
+                            position: vec3.fromValues(x, -15, z),
+                            pitch: -250,
+                            yaw: 2000,
+                        });
+                    }
+                },
+                transient: false,
+            },
+        };
+
+        if (screenSaverRunning) {
+            const buttonName = "Stop";
+            screensaverSchema[buttonName] = button(() => {
+                setScreenSaverRunning(false);
+                if (animation) {
+                    animation.pause();
+                    setAnimation(undefined);
+                }
+            });
+            screensaverSchema[buttonName].order = -1;
+        } else {
+            const buttonName = "Start";
+            screensaverSchema[buttonName] = button(() => {
+                setScreenSaverRunning(true);
+                const animation = animateRotateAroundPoint(
+                    vec3.fromValues(
+                        mapViewer.camera.pos[0],
+                        mapViewer.camera.pos[1],
+                        mapViewer.camera.pos[2],
+                    ),
+                );
+                setAnimation(animation);
+                animation.then(() => {
+                    setScreenSaverRunning(false);
+                    setAnimation(undefined);
+                });
+            });
+            screensaverSchema[buttonName].order = -1;
         }
 
         useControls(
@@ -446,6 +530,7 @@ export const MapViewerControls = memo(
                     },
                     { collapsed: true },
                 ),
+                ScreenSaver: folder(screensaverSchema, { collapsed: true }),
             },
             [
                 renderer,
@@ -457,6 +542,8 @@ export const MapViewerControls = memo(
                 isCameraRunning,
                 isExportingSprites,
                 isExportingTextures,
+                screenSaverRunning,
+                selectedLocation,
             ],
         );
 
